@@ -110,7 +110,6 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 
 	printf("check msg\n");
 	bool valid = check_msg(msg_ptr+1, end_ptr, setup);
-	printf("valid: %d\n", valid);
 	if (!valid) {
 		send_err(sock, n, CT);
 		return false;
@@ -146,6 +145,12 @@ bool check_2 (char *start, char *end, char *setup) {
 	return (strncmp(start, setup, n) == 0 && strcmp(start + n, ", who?|") == 0);
 }
 
+bool check_3(char *start, char *end, char *setup) {
+	char c = *(end-1);
+	bool is_punc = (strchr(".?!", c) != NULL);
+
+	return (int)(end-start) >= 2 && is_punc;
+}
 
 void read_into_buf(int sock, Buffer *buffer) {
 	buffer->curr_size = 0;
@@ -198,7 +203,7 @@ int main(int argc, char **argv) {
 	strcat(prompts[2], " these nuts across your face.");
 
 
-	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, NULL};
+	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};
 
 	for (int i=0; i < 3; i++) {
 		printf("%d\n", i);
