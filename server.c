@@ -57,7 +57,7 @@ void send_err(int sock, int n, enum err_code err) {
 	const char *err_msgs[] = {"CT", "LN", "FT"};
 
 	char message[10]; //ERR + 4 error code length + 2 seperators + 1 null
-	sprintf(message, "ERR|M%d%s|", n, err_msgs[err]);
+	sprintf(message, "ERR|M%d%s|", 2*n+1, err_msgs[err]);
 
 	send(sock, message, 10, 0);
 }
