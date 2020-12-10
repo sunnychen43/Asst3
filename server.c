@@ -70,21 +70,18 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 		return false;
 	}
 	//check for proper header, return format error
-	printf("check header\n");
 	if (strncmp(m, "REG|", 4) != 0) {
 		send_err(sock, n, FT);
 		return false;
 	}
 
 	char *len_ptr = m+4; //increment pointer by 4 to find part past the seperator
-	printf("check second sep\n");
 	char *msg_ptr = strchr(len_ptr + 1, '|');
 	if (msg_ptr == NULL) {
 		send_err(sock, n, FT); //send error is message is not found
 		return false;
 	}
 
-	printf("check third sep\n");
 	// REG|3|dog|
 	char *end_ptr = strchr(msg_ptr + 1, '|');
 	printf("%p\n", end_ptr);
@@ -93,7 +90,6 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 		return false;
 	}
 
-	printf("check len\n");
 	// check if number
 	for (char *p = len_ptr; p < msg_ptr; p++) {
 		if (!isdigit(*p)) {
@@ -102,14 +98,12 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 		}
 	}
 
-	printf("check len match\n");
 	long msg_len = strtol(len_ptr, NULL, 10);
 	if (msg_len != (int)(end_ptr - msg_ptr) - 1) {
 		send_err(sock, n, LN);
 		return false;
 	}
 
-	printf("check msg\n");
 	bool valid = check_msg(msg_ptr+1, end_ptr, setup);
 	if (!valid) {
 		send_err(sock, n, CT);
@@ -127,7 +121,6 @@ bool check_1 (char *start, char *end, char *setup) {
 		// message error (message empty)
 		return false;
 	}
-	printf("%s\n", start);
 	return (strcmp(start, "Who's there?|") == 0);
 }
 
@@ -141,7 +134,6 @@ bool check_2 (char *start, char *end, char *setup) {
 		return false;
 	}
 	int n = strlen(setup); // char is 1 byte
-	printf("%s %s %d\n", start, setup, n);
 	return (strncmp(start, setup, n) == 0 && strcmp(start + n, ", who?|") == 0);
 }
 
@@ -261,7 +253,6 @@ int main(int argc, char **argv) { //maybe check if argc=1
 		int client_sock = accept(server_sock, NULL, NULL);
 
 		for (int i=0; i < 3; i++) {
-			printf("%d\n", i);
 			send_kkj(client_sock, prompts[i]);
 			read_into_buf(client_sock, &buffer);
 
