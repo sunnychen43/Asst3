@@ -234,12 +234,9 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	if (bind(server_sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
 		printf("error binding");
 	}
-	
 
 	Buffer buffer;
-	buffer.buf = (char *)malloc(256);
-	buffer.curr_size = 0;
-	buffer.max_size = 512;
+
 	// sends "knock knock"
 	char setup[20] = "Dragon";
 	char prompts[3][40];
@@ -255,6 +252,10 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	bool error_raised = false;
 	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};
 	while (!error_raised) {
+
+		buffer.buf = (char *)malloc(512);
+		buffer.curr_size = 0;
+		buffer.max_size = 512;
 		
 		listen(server_sock, 10);
 		int client_sock = accept(server_sock, NULL, NULL);
@@ -276,9 +277,10 @@ int main(int argc, char **argv) { //maybe check if argc=1
 			}
 		}
 		close(client_sock);
+		free(buffer.buf);
 	}
+
 	// read "who's there" and then send follow up
 	close(server_sock);
-	free(buffer.buf);
 	return 0;
 }
