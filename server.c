@@ -146,7 +146,9 @@ bool parse_reg(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 	return true;
 }
 
-/* All client messages recieved fall into three catagories.  */
+/* A client should only ever send 3 types of messages. These functions check the content of each one. */
+
+
 bool check_1 (char *start, char *end, char *setup) {
 	if (start == end) {
 		// message error (message empty)
