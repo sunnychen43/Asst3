@@ -12,14 +12,18 @@
 
 #include <netinet/in.h>
 
+
+/*-----------------------------Network IO-------------------------------------*/
+
+/* Buffer for receiving from client */
 typedef struct Buffer {
-	char *buf;
-
-	int curr_size;
-	int max_size;
-
+	char *buf;  // stores data
+	int curr_size;  // how many bytes are in use
+	int max_size;  // how many bytes allocated to buf
 } Buffer;
 
+
+/* counts number of digits, used for verifying msg length */
 int digits(int num) {
 	int count = 0;
 	while(num != 0) {
@@ -29,16 +33,20 @@ int digits(int num) {
 	return count;
 }
 
+
+/* converts string to kkj formatted message */
 char *format_kkj(char *s) {
 	size_t s_len = strlen(s);
-	size_t m_len = 7 + digits(s_len) + s_len; // 7 = REG + 3 seperators + 1 null char
+	size_t m_len = 7 + digits(s_len) + s_len; // kkj message length, 7 = REG + 3 seperators + 1 null char
 
 	char *message = malloc(m_len);
-	sprintf(message, "REG|%ld|%s|", s_len, s); //replace ld with zu?
+	sprintf(message, "REG|%ld|%s|", s_len, s);  // write formatted message to string
 
 	return message;
 }
 
+
+/* formats and sends message to client socket */
 void send_kkj(int sock, char *s) {
 	char *message = format_kkj(s);
 	size_t m_len = strlen(message)+1;
@@ -46,6 +54,7 @@ void send_kkj(int sock, char *s) {
 	send(sock, message, m_len, 0);
 	free(message);
 }
+
 
 enum err_code {
 	CT,  // content
@@ -63,8 +72,33 @@ void send_err(int sock, int n, enum err_code err) {
 	send(sock, message, 10, 0);
 }
 
+
+/* Reads a message of unknown length from client. Resize buffer if message goes over
+allocated memory. */
+void read_into_buf(int sock, Buffer *buffer) {
+	buffer->curr_size = 0;  // this clears buffer, we will overwrite data already in buf
+
+	int bytes_read;
+	do {
+		// check if buf has enough room before reading
+		if (buffer->max_size - buffer->curr_size - 1 < 256) {  // save one byte for null terminator
+			buffer->buf = realloc(buffer->buf, buffer->max_size * 2);  // double buf size
+			buffer->max_size *= 2;
+		}
+
+		bytes_read = recv(sock, buffer->buf+buffer->curr_size, 256, 0);  // writes to first free bytes
+		buffer->curr_size += bytes_read;
+
+	} while (bytes_read == 256);
+
+	buffer->buf[buffer->curr_size] = 0;  // add null char
+}
+
+
+/*-----------------------------Parsing Messages-------------------------------------*/
+
 // len is length of received string
-bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *, char *, char *)) {
+bool parse_reg(int sock, char *m, char *setup, int n, bool (*check_msg) (char *, char *, char *)) {
 	if (strlen(m) < 7) {
 		send_err(sock, n, FT); //checks if contains the minimum character number....but maybe this should be
 		return false;
@@ -84,7 +118,6 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 
 	// REG|3|dog|
 	char *end_ptr = strchr(msg_ptr + 1, '|');
-	printf("%p\n", end_ptr);
 	if (end_ptr == NULL || *(end_ptr+1) != 0) {  // check that '|' is last char
 		send_err(sock, n, FT);
 		return false;
@@ -112,10 +145,8 @@ bool parse_kkj(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 
 	return true;
 }
-/*
-start begins at the first charactere and end points to |, and is followed by the null terminator
-checks is message is "Who's there?"
-*/
+
+/* All client messages recieved fall into three catagories.  */
 bool check_1 (char *start, char *end, char *setup) {
 	if (start == end) {
 		// message error (message empty)
@@ -125,7 +156,7 @@ bool check_1 (char *start, char *end, char *setup) {
 }
 
 /*
-start begins at the first charactere and end points to |, and is followed by the null terminator
+start begins at the first character and end points to |, and is followed by the null terminator
 checks if message is previous message, followed by ", who?"
 */
 bool check_2 (char *start, char *end, char *setup) {
@@ -145,32 +176,12 @@ bool check_3(char *start, char *end, char *setup) {
 	return (int)(end-start) >= 2 && is_punc;
 }
 
-void read_into_buf(int sock, Buffer *buffer) {
-	buffer->curr_size = 0;
 
-	int bytes_read;
-	do {
-		// resize if not enough room
-		if (buffer->max_size - buffer->curr_size - 1 < 256) {
-			buffer->buf = realloc(buffer->buf, buffer->max_size * 2);
-			buffer->max_size *= 2;
-		}
-
-		bytes_read = recv(sock, buffer->buf, 256, 0);
-		buffer->curr_size += bytes_read;
-
-	} while (bytes_read == 256);
-
-	buffer->buf[buffer->curr_size] = 0;  // add null char
-}
 
 bool check_err(char* str, char* end, int n) {
-	if (str == end) {
-		// message error (message empty)
-		return false;
-	}
 	bool first_two = (*str == 'M') && *(str+1) == (2*n)+'0';
 	bool last_two = (strncmp(str+2, "CT|", 3) == 0 || strncmp(str+2, "LN|", 3) == 0 || strncmp(str+2, "FT|", 3) == 0);
+
 	return first_two && last_two;
 }
 
@@ -188,13 +199,11 @@ bool parse_error_code(int sock, char *m, char *setup, int n) {
 	char *err_str_ptr = m+4; //increment pointer by 4 to find part past the seperator
 	if (err_str_ptr == NULL) {
 		send_err(sock, n, FT); //not sure what error to include, likely formatting
-		printf("Error code not found\n");
 		return false;
 	}
 
 	char *err_end_ptr = strchr(err_str_ptr + 1, '|');
 	if (err_end_ptr == NULL || *(err_str_ptr+1) != 0) {  // check that '|' is last char
-		printf("Error message doesn't end with |");
 		send_err(sock, n, FT);
 		return false;
 	}
@@ -210,7 +219,6 @@ bool parse_error_code(int sock, char *m, char *setup, int n) {
 		return false;
 	}
 
-	printf("Recieved unidentified error from client\n");
 	send_err(sock, n, CT);
 	return false;
 }
@@ -248,30 +256,37 @@ int main(int argc, char **argv) { //maybe check if argc=1
 		buffer.buf = (char *)malloc(512);
 		buffer.curr_size = 0;
 		buffer.max_size = 512;
-		
+
+		printf("Listening for client.\n");
 		listen(server_sock, 10);
 		int client_sock = accept(server_sock, NULL, NULL);
+		printf("Connected to client.\n");
 
 		for (int i=0; i < 3; i++) {
+			printf("Sending: %s\n", prompts[i]);
 			send_kkj(client_sock, prompts[i]);
 			read_into_buf(client_sock, &buffer);
+			printf("Received: %s\n", buffer.buf);
 
 			if (!parse_error_code(client_sock, buffer.buf, setup, i)) {
+				printf("Recieved error from client.\n");
 				error_raised = true;
 				break;
 			}
 
-			if (!parse_kkj(client_sock, buffer.buf, setup, i, msg_checks[i])) {
-				printf("Invalid client msg: %s\n", buffer.buf);
+			if (!parse_reg(client_sock, buffer.buf, setup, i, msg_checks[i])) {
+				printf("Invalid client msg.\n");
 				error_raised = true;
 				break;
 			}
 		}
+		printf("Closing connection to client.\n");
 		close(client_sock);
 		free(buffer.buf);
 	}
 
 	// read "who's there" and then send follow up
+	printf("Closing server.\n");
 	close(server_sock);
 	return 0;
 }
