@@ -177,47 +177,50 @@ bool check_err(char* str, char* end, int n) {
 		// message error (message empty)
 		return false;
 	}
-	bool first_two = (*str == 'M') && isdigit(str+1) && *(str+1) == n+1;
+	bool first_two = (*str == 'M') && *(str+1) == (2*n)+'0';
 	bool last_two = (strncmp(str+2, "CT|", 3) == 0 || strncmp(str+2, "LN|", 3) == 0 || strncmp(str+2, "FT|", 3) == 0);
 	return first_two && last_two;
 }
 
+// true means no problem, continue
 bool parse_error_code(int sock, char *m, char *setup, int n) {
-	if (strncmp(m, "ERR|", 4) == 0) {
-		if (strlen(m) != 10) {
-			send_err(sock, n, LN); //checks if contains the correct length
-			return false;
-		}
-		char *err_str_ptr = m+4; //increment pointer by 4 to find part past the seperator
-		printf("check error code for validity\n");
-		char *err_end_ptr = strchr(err_str_ptr + 1, '|');
-		if (err_str_ptr == NULL) {
-			send_err(sock, n, FT); //not sure what error to include, likely formatting
-			printf("Error code not found\n");
-			return false;
-		}
-		if (err_end_ptr == NULL || *(err_str_ptr+1) != 0) {  // check that '|' is last char
-			printf("Error message doesn't end with |");
-			send_err(sock, n, FT);
-			return false;
-		}
-		printf("check len match\n");
-		if (4 != (int)(err_end_ptr - err_str_ptr) - 1) {
-			send_err(sock, n, LN);
-			return false;
-		}
-		printf("check error\n");
-		bool valid = check_err(err_str_ptr+1, err_end_ptr, n);
-		if (!valid) {
-			send_err(sock, n, CT);
-			return false;
-		}
+	if (strncmp(m, "ERR|", 4) != 0) {
+		return true;
+	}
 
-		printf("Recieved unidentified error from client\n");
+	if (strlen(m) != 10) {
+		send_err(sock, n, FT); //checks if contains the correct length
+		return false;
+	}
+
+	char *err_str_ptr = m+4; //increment pointer by 4 to find part past the seperator
+	if (err_str_ptr == NULL) {
+		send_err(sock, n, FT); //not sure what error to include, likely formatting
+		printf("Error code not found\n");
+		return false;
+	}
+
+	char *err_end_ptr = strchr(err_str_ptr + 1, '|');
+	if (err_end_ptr == NULL || *(err_str_ptr+1) != 0) {  // check that '|' is last char
+		printf("Error message doesn't end with |");
+		send_err(sock, n, FT);
+		return false;
+	}
+
+	if ((int)(err_end_ptr - err_str_ptr) != 4) {
+		send_err(sock, n, LN);
+		return false;
+	}
+	
+	bool valid = check_err(err_str_ptr, err_end_ptr, n);
+	if (!valid) {
 		send_err(sock, n, CT);
 		return false;
 	}
-	return true;
+
+	printf("Recieved unidentified error from client\n");
+	send_err(sock, n, CT);
+	return false;
 }
 
 int main(int argc, char **argv) { //maybe check if argc=1
@@ -231,8 +234,6 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	if (bind(server_sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
 		printf("error binding");
 	}
-	listen(server_sock, 10);
-	int client_sock = accept(server_sock, NULL, NULL);
 
 	Buffer buffer;
 	buffer.buf = (char *)malloc(256);
@@ -250,22 +251,25 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	strcpy(prompts[2], setup);
 	strcat(prompts[2], " these nuts across your face.");
 
-	bool no_errors = true;
+	bool error_raised = false;
 	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};
-	while (no_errors) {
+	while (!error_raised) {
+		listen(server_sock, 10);
+		int client_sock = accept(server_sock, NULL, NULL);
+
 		for (int i=0; i < 3; i++) {
 			printf("%d\n", i);
 			send_kkj(client_sock, prompts[i]);
 			read_into_buf(client_sock, &buffer);
 
 			if (!parse_error_code(client_sock, buffer.buf, setup, i)) {
-				no_errors = false;
+				error_raised = true;
 				break;
 			}
 
 			if (!parse_kkj(client_sock, buffer.buf, setup, i, msg_checks[i])) {
 				printf("Invalid client msg: %s\n", buffer.buf);
-				no_errors = false;
+				error_raised = true;
 				break;
 			}
 		}

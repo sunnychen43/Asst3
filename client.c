@@ -56,9 +56,9 @@ int main(int argc, char **argv) {
         fgets(buf, 255, stdin);
 		buf[strcspn(buf, "\n")] = 0;
 
-		char *response = format_kkj(buf);
+		//char *response = format_kkj(buf);
 
-		write(sock, response, strlen(response));
+		write(sock, buf, strlen(buf));
     }
 
     close(sock);
