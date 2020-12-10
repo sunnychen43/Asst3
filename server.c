@@ -234,6 +234,7 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	if (bind(server_sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
 		printf("error binding");
 	}
+	
 
 	Buffer buffer;
 	buffer.buf = (char *)malloc(256);
@@ -254,6 +255,7 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	bool error_raised = false;
 	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};
 	while (!error_raised) {
+		
 		listen(server_sock, 10);
 		int client_sock = accept(server_sock, NULL, NULL);
 
@@ -273,6 +275,7 @@ int main(int argc, char **argv) { //maybe check if argc=1
 				break;
 			}
 		}
+		close(client_sock);
 	}
 	// read "who's there" and then send follow up
 	close(server_sock);
