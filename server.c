@@ -148,7 +148,7 @@ bool parse_reg(int sock, char *m, char *setup, int n, bool (*check_msg) (char *,
 
 /* A client should only ever send 3 types of messages. These functions check the content of each one. */
 
-
+/* simple check for "Who's there?|" */
 bool check_1 (char *start, char *end, char *setup) {
 	if (start == end) {
 		// message error (message empty)
@@ -157,10 +157,7 @@ bool check_1 (char *start, char *end, char *setup) {
 	return (strcmp(start, "Who's there?|") == 0);
 }
 
-/*
-start begins at the first character and end points to |, and is followed by the null terminator
-checks if message is previous message, followed by ", who?"
-*/
+/* checks for "<setup>, who?|" */
 bool check_2 (char *start, char *end, char *setup) {
 	if (start == end) {
 		// message error (message empty)
@@ -170,8 +167,8 @@ bool check_2 (char *start, char *end, char *setup) {
 	return (strncmp(start, setup, n) == 0 && strcmp(start + n, ", who?|") == 0);
 }
 
+/* checks for any char and then punctuation */
 bool check_3(char *start, char *end, char *setup) {
-//from here until END lines may have been inserted/deleted
 	char c = *(end-1);
 	bool is_punc = (strchr(".?!", c) != NULL);
 
@@ -179,16 +176,19 @@ bool check_3(char *start, char *end, char *setup) {
 }
 
 
+/* makes sure that the error code is the right format. we assume 
+that an incorrect code is a FORMAT error, not a CONTENT error */
 
-bool check_err(char* str, char* end, int n) {
+bool check_err_code(char* str, char* end, int n) {
 	bool first_two = (*str == 'M') && *(str+1) == (2*n)+'0';
 	bool last_two = (strncmp(str+2, "CT|", 3) == 0 || strncmp(str+2, "LN|", 3) == 0 || strncmp(str+2, "FT|", 3) == 0);
 
 	return first_two && last_two;
 }
 
-// true means no problem, continue
-bool parse_error_code(int sock, char *m, char *setup, int n) {
+/* Parses a message to see if it is a valid error code. If it is an error, return false. Otherwise return true. */
+
+bool parse_error(int sock, char *m, char *setup, int n) {
 	if (strncmp(m, "ERR|", 4) != 0) {
 		return true;
 	}
@@ -215,7 +215,7 @@ bool parse_error_code(int sock, char *m, char *setup, int n) {
 		return false;
 	}
 	
-	bool valid = check_err(err_str_ptr, err_end_ptr, n);
+	bool valid = check_err_code(err_str_ptr, err_end_ptr, n);
 	if (!valid) {
 		send_err(sock, n, CT);
 		return false;
@@ -225,7 +225,20 @@ bool parse_error_code(int sock, char *m, char *setup, int n) {
 	return false;
 }
 
-int main(int argc, char **argv) { //maybe check if argc=1
+int main(int argc, char **argv) {
+	if (argc != 2) {
+		printf("Invalid argument count, only include server port.\n");
+		return -1;
+	}
+
+	int port = strtol(argv[1], NULL, 0);
+	if (port < 9000) {
+		printf("Invalid port. Port must be between 9000 - 65535\n");
+		return -1;
+	}
+
+
+	/* Initialize server socket and bind to addr */
 	int server_sock = socket(AF_INET, SOCK_STREAM, 0);
 
 	struct sockaddr_in server_addr;
@@ -234,60 +247,69 @@ int main(int argc, char **argv) { //maybe check if argc=1
 	server_addr.sin_port = htons(strtol(argv[1], NULL, 0));
 
 	if (bind(server_sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
-		printf("error binding");
+		printf("Unable to bind.\n");
+		return -1;
 	}
 
-	Buffer buffer;
-
-	// sends "knock knock"
+	/* joke setup string */
 	char setup[20] = "Dragon";
+
+	/* store the prompts to send to client, 3 in total */
 	char prompts[3][40];
-
 	strcpy(prompts[0], "Knock, knock.");
-
 	strcpy(prompts[1], setup);
 	strcat(prompts[1], ".");
-
 	strcpy(prompts[2], setup);
 	strcat(prompts[2], " these nuts across your face.");
 
-	bool error_raised = false;
-	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};
+	Buffer buffer;  // buffer for client data
+	bool (*msg_checks[])(char *, char *, char *) = {&check_1, &check_2, &check_3};  // function pointers to check msg content
+
+	bool error_raised = false;  
 	while (!error_raised) {
 
+		printf("Listening for client.\n");
+		if (listen(server_sock, 10) == -1) {
+			printf("Timeout, no client connected.\n");
+			break;
+		}
+
+		/* Initialize buffer, can initally hold 512 bytes */
 		buffer.buf = (char *)malloc(512);
 		buffer.curr_size = 0;
 		buffer.max_size = 512;
 
-		printf("Listening for client.\n");
-		listen(server_sock, 10);
 		int client_sock = accept(server_sock, NULL, NULL);
 		printf("Connected to client.\n");
 
+		/* loop through 3 prompts */
 		for (int i=0; i < 3; i++) {
 			printf("Sending: %s\n", prompts[i]);
 			send_kkj(client_sock, prompts[i]);
+
 			read_into_buf(client_sock, &buffer);
 			printf("Received: %s\n", buffer.buf);
 
-			if (!parse_error_code(client_sock, buffer.buf, setup, i)) {
+			/* if client sent error message, terminate */
+			if (!parse_error(client_sock, buffer.buf, setup, i)) {
 				printf("Recieved error from client.\n");
 				error_raised = true;
 				break;
 			}
 
+			/* if client message is invalid, terminate */
 			if (!parse_reg(client_sock, buffer.buf, setup, i, msg_checks[i])) {
 				printf("Invalid client msg.\n");
 				error_raised = true;
 				break;
 			}
 		}
+
 		printf("Closing connection to client.\n");
 		close(client_sock);
 		free(buffer.buf);
 	}
 
-	// read "who's there" and then send follow up
 	printf("Closing server.\n");
 	close(server_sock);
 	return 0;
